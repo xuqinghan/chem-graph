@@ -25,12 +25,12 @@ if __name__ == '__main__':
         ('C5', 'C6', 1), 
         ('C6', 'C7', 2), 
         ('C7', 'C8', 1),
-        ('C8', 'C9', 2),  
+        ('C8', 'C9', 2),
         ('C9', 'C4', 1), 
         ] 
     G.add_weighted_edges_from(edges)
 
-    #-----plot---------
+    #-----plot--nx的画图每次是随机的,其实应该按化学规则(键的长度)等等去画,也许有别的化学库可以计算长度,角度等等等-------
     #按权重(化学键) 1- 3 归类
     bonds = {num: [(u,v) for (u,v,d) in G.edges(data=True) if d['weight'] == num] for num in range(1, 4)}
 
