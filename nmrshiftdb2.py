@@ -3,12 +3,15 @@
     初步读取 .sd  -> dict yml
     
 '''
-
+import math
 import re
 import u_file
 #import yaml
 from ruamel import yaml
 import numpy as np
+import copy
+
+
 import matplotlib.pyplot as plt
 plt.rcParams['font.sans-serif'] = ['SimHei'] # 步骤一（替换sans-serif字体）
 plt.rcParams['axes.unicode_minus'] = False   # 步骤二（解决坐标轴负数的负号显示问题）
@@ -17,6 +20,41 @@ plt.rcParams['axes.unicode_minus'] = False   # 步骤二（解决坐标轴负数
 pattern_mid = re.compile(r'nmrshiftdb2 ([\d]*)')
 
 pattern_sid = re.compile(r'> <Spectrum 13C ([\d]*)>')
+
+# C 4
+# O 2
+# N 3
+# H 1
+# P 6
+# S 2
+# F 1
+# Br 1
+# Cl 1
+# I 1
+# Te 2
+#Se 2
+#Si 4
+#B 3
+
+
+
+# 'Tl' 铊
+# Se 硒
+# Ge 锗
+# Cs 铯
+# Sb 锑
+# Bi 铋
+# Pd 钯
+#atom_name = [ 'C', 'O', 'N', 'P', 'S', 'Cl', 'Br', 'I', 'Te']
+#all_atom_in_db
+atom_name = [ 'C', 'O', 'N', 'P', 'S', 'F', 'Cl', 'Br', 'I', 'Te', \
+            'F', 'Se', 'Si', 'Na', 'B', 'Sn', 'As', 'Tl', 'Li', \
+            'K', 'Al', 'Ge', 'Pb', 'Zn', 'Mg', 'Ti', 'Hg', 'Ag',\
+            'Cs', 'Pt', 'Pd', 'Sb', 'Ga', 'Bi']
+
+#只包含这些"常见"原子，才考虑，其他全都删除 20200816 晚增补  Se 2 Si 4 B 3
+atom_name_whitelist = [ 'C', 'O', 'N', 'P', 'S', 'F', 'Cl', 'Br', 'I', 'Te',\
+    'Se', 'Si', 'B']
 
 
 def match_id(line, pattern):
@@ -44,10 +82,17 @@ def split_sd2_by_nmrshiftdb2(file):
                 if id_current is not None:
                     #id_lines[id_current] = lines1
                     print(id_current)
-                    id_lines[id_current] = parse_lines_m1(lines1)
+                    record = parse_lines_m1(lines1)
+                    if record is None:
+                        #print('含有不常见元素，放弃')
+                        pass
+                    else:
+                        id_lines[id_current] = record
+                    
                     #id_lines.append({'id': id_current, **parse_lines_m1(lines1)})
                     #只处理1段测试
-                    #break
+                    # if id_current == 2190:
+                    #     break
                 #更新id 清空lines1
                 id_current = id_m
                 lines1 = []
@@ -74,9 +119,12 @@ def parse_row_list_space(line1):
     '''
     return line1.lstrip(' ').rstrip('\n').split()
 
-def round_up(value):
-    '''python的 round有坑'''
-    return round(value * 100) / 100.0
+def round_up(value, num=2):
+    '''python的 round有坑
+        19.345  num = 2  1934.5 + 0.5 = 1935 / 100
+    '''
+    p10 = math.pow(10, num)
+    return round(value * p10 +0.5) / p10
 
 def parse_spectrum_seg1(seg1):
     '''形如 18.3;0.0T;0 '''
@@ -91,6 +139,44 @@ def parse_spectrum(line1):
 
     spectrum_list = [parse_spectrum_seg1(seg1) for seg1 in spectrum_list]
     return spectrum_list
+
+def remove_H(atoms, bonds):
+    '''原始数据有时包含部分H原子，为了统一，去掉
+        spectrum 里标注的原子序号同时作废
+    '''
+    print('去除H原子')
+    atoms_removed_H = []
+    idxs_H = []
+    for idx_atom_old, atom1 in enumerate(atoms, 1):
+        #原序号从1开始编，现在要删除，对edge需要代换重新编码，因此需要保留老原子编号
+        x,y,z,s, name = atom1
+        if name == 'H':
+           idxs_H.append(idx_atom_old)
+        else:
+            #保留的原子需要带上老编号！
+            atoms_removed_H.append([idx_atom_old, x,y,z,s, name])
+    #atoms 码表
+    atoms_new = []
+    dict_idx_old_new = {}
+    #新变号为了兼容不删除H的，仍然从1开始
+    for idx_atom_new, atom1 in enumerate(atoms_removed_H, 1):
+        idx_atom_old,x,y,z,s, name = atom1
+        #去掉老序号
+        atoms_new.append([x,y,z,s, name])
+        dict_idx_old_new[idx_atom_old] = idx_atom_new
+    # print('atoms_old', atoms)
+    # print('atoms reindex', atoms_new)
+    # print('idxs_H', idxs_H)
+    # print('idx_atom_map', dict_idx_old_new)
+    #bonds简单去掉含H的
+    bonds_removed_H = [x for x in bonds if (x[0] not in idxs_H) and (x[1] not in idxs_H)]
+    #print('bonds_old', bonds)
+    #print('bonds_remove H simple', bonds_removed_H)
+    #每条边替换成新编号
+    bonds_new = [[dict_idx_old_new[idx_src], dict_idx_old_new[idx_dst], *res]  for idx_src, idx_dst, *res in bonds_removed_H]
+
+    #print('bonds reindex', bonds_new)
+    return atoms_new, bonds_new
 
 def parse_lines_m1(lines):
     '''
@@ -108,6 +194,7 @@ def parse_lines_m1(lines):
     idx_line = 1
     atoms = []
     bonds = []
+    need_remove_H = False
     #atom bonds 连续排列，遇到不是的，就跳出
     while True:
         line1 = lines[idx_line]
@@ -115,13 +202,27 @@ def parse_lines_m1(lines):
         size_line = len(list_line1)
         #print(size_line, line1)
         if size_line == 16:
-            atom1 = [*[float(x) for x in list_line1[0:3]], int(list_line1[9]), list_line1[3]]
+            name = list_line1[3]
+            atom1 = [*[float(x) for x in list_line1[0:3]], int(list_line1[9]), name]
+
+            if name == 'H':
+                need_remove_H = True
+            else:
+                assert name in atom_name, f'{name} not in {atom_name}'
+                if name not in atom_name_whitelist:
+                    #如果不是常用原子，则直接退出 舍弃
+                    print(f'含有不常见元素 {name}，放弃')
+                    return None
+
             atoms.append(atom1)
         elif size_line == 7:
             bonds.append([int(x) for x in list_line1[0:4]])
         else:
             break
         idx_line += 1
+
+    if need_remove_H:
+        atoms, bonds = remove_H(atoms, bonds)
 
 
     #提取 > <Spectrum 13C 0>
@@ -140,6 +241,10 @@ def parse_lines_m1(lines):
             #不处理
             pass
         idx_line += 1
+
+    if not dict_spectrum:
+        print('没有 Spectrum 13C ,舍弃')
+        return None
 
     return {'atoms': atoms, 'bonds': bonds, 'spectrums': dict_spectrum}
 
@@ -180,6 +285,8 @@ def get_min_shift_spectrum(id_lines):
 
     return diff, shifts
 
+#---------output scope-----------------
+
 def plot_num_atom(id_num_atoms):
 
 
@@ -211,7 +318,7 @@ def plot_num_atom(id_num_atoms):
     ax2.grid()
 
     print(f'单结构式最大原子数: {num_atoms_max}')
-    #plt.savefig(f'dist_num_atom_nmrshift_db2_max{num_atoms_max}.png')
+    plt.savefig(f'dist_num_atom_nmrshift_db2_max{num_atoms_max}.png')
 
 def plot_shift(shifts):
 
@@ -251,6 +358,66 @@ def plot_diff_2shift(diff, bins, ranges):
     print(f'相邻峰间距范围: [{diff_min}  {diff_max}]')
     plt.savefig(f'dist_2shift_nmrshift_db2_min{diff_min}_max{diff_max}.png')
 
+#---------pyTorch Geometric-----------------
+
+def read_edges_to_ptG(record1):
+    #to ptG edge_index
+    bonds = record1['bonds']
+    if not bonds:
+        '''甲烷特殊，没有bonds
+            但有1个原子， 和谱线 仍然保留
+        '''
+        return None
+    bonds = np.array(bonds)
+    #bonds.reshape()
+    #print(bonds)
+    #原序号1开头
+    bonds[:, 0] -= 1
+    bonds[:, 1] -= 1
+    #print(bonds)
+    bonds_2 = bonds.copy()
+    bonds_2[:, 0] = bonds[:, 1].copy()
+    bonds_2[:, 1] = bonds[:, 0].copy()
+    edges = np.vstack((bonds, bonds_2)).T
+    return edges
+
+
+def read_atom_features_to_ptG(record1):
+    '''只对白名单内原子类型 进行编码'''
+    atoms_label = [[atom_name_whitelist.index(x[-1])] for x in  record1['atoms']]
+    #x
+    return atoms_label
+
+def get_spectrum_to_ptG(record1):
+    '''谱线 2500维  -10.0 ->240'''
+    x_beg = -10.0
+    x_end =  240.0
+    x_beg10 = int(x_beg*10)
+    x_end10 = int(x_end*10)
+    N = int(x_end10 - x_beg10 + 1)
+    def get_idx_shift(shift:float):
+        '''从位移到量化编码序号'''
+        #放大10倍，取整
+        v = int(round(shift * 100) / 100 * 10)
+        #print(shift, v)
+        if v < x_beg10:
+            idx = 0
+        elif v >= x_end10:
+            idx = N-1
+        else:
+            idx = v - x_beg10
+        return idx
+
+    #第0号谱图
+    spectrum1 = record1['spectrums'][0]
+    y = np.zeros((1, N))
+    #按位设置为1
+    for shift, peck, idx_c in spectrum1:
+        idx = get_idx_shift(shift)
+        #print(shift, idx)
+        y[:, idx] = 1
+    return y
+
 
 
 if __name__ == '__main__':
@@ -262,9 +429,27 @@ if __name__ == '__main__':
     #id_lines = load_ABS(fname_abs)
     print(f'共 {len(id_lines)}个结构式')
 
+    #record1 = list(id_lines.values())[0]
+    #print(record1)
+    #atoms_label = read_atom_features_to_ptG(record1)
+    #print(atoms_label)
+    #y = get_spectrum_to_ptG(record1)
+    #print(y)
+
+    # x = 18.25
+    # print(x, round(x, 1), round_up(x, 1))
+    # x = 18.38
+    # print(x, round(x, 1), round_up(x, 1))
+    # x = 18.36
+    # print(x, round(x, 1), round_up(x, 1))
+
+
+    #-----------------output-------------------------
+
     #每个原子数量 统计最大值和分布
     id_num_atoms = get_num_atom(id_lines)
-
+    plot_num_atom(id_num_atoms)
+    
     #每个原子 碳谱线最小间距
     diff, shifts = get_min_shift_spectrum(id_lines)
 
@@ -275,12 +460,3 @@ if __name__ == '__main__':
     #整体
     plot_diff_2shift(diff, bins=500, ranges=None)
 
-    #plt.show()
-
-        # for record1 in id_lines:
-        #     for line in record1['atoms']:
-        #         s = yaml.dump(line, default_flow_style=True)
-        #         print(s)
-            # yaml.dump(data, f, default_flow_style=False,\
-            #                   encoding = 'utf-8', \
-            #                   allow_unicode = True)

@@ -6,7 +6,7 @@ __pycache__/
 *.png
 *.sd
 *.yml
-
+dataset/
 
 
 
