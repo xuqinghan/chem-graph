@@ -1,0 +1,8 @@
+prepare_dataset:
+    ☐ load进pytorch 
+
+GNN:
+    ☐ 尝试最简单的单元
+
+碳谱预测:
+    ☐ 尝试dual learning 结构
