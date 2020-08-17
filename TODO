@@ -4,9 +4,9 @@ prepare_dataset:
     ✔ 过滤掉没有 spectrum 13C 的分子 @done(20-08-16 23:33)
     ✔ 处理甲烷这种没有边，但是有谱线的 @done(20-08-16 23:33)
     ✔ load进ptG 的dataset @done(20-08-16 23:34)
-
+    ✔ 原子顺序按白名单排序 COCOCO->CCCOOO @done(20-08-17 11:55)
 GNN:
-    ☐ 尝试最简单的单元
+    ✔ 尝试最简单的单元 @done(20-08-17 20:58)
 
 碳谱预测:
     ☐ 尝试dual learning 结构

@@ -56,6 +56,10 @@ atom_name = [ 'C', 'O', 'N', 'P', 'S', 'F', 'Cl', 'Br', 'I', 'Te', \
 atom_name_whitelist = [ 'C', 'O', 'N', 'P', 'S', 'F', 'Cl', 'Br', 'I', 'Te',\
     'Se', 'Si', 'B']
 
+#原子类型标记编码 无原子的-1 其他从0 开始
+atom_codes = {'XXX':-1, **{name:i for i, name in enumerate(atom_name_whitelist)}}
+
+
 
 def match_id(line, pattern):
     m = pattern.match(line)
@@ -93,6 +97,7 @@ def split_sd2_by_nmrshiftdb2(file):
                     #只处理1段测试
                     # if id_current == 2190:
                     #     break
+                    #break
                 #更新id 清空lines1
                 id_current = id_m
                 lines1 = []
@@ -140,6 +145,14 @@ def parse_spectrum(line1):
     spectrum_list = [parse_spectrum_seg1(seg1) for seg1 in spectrum_list]
     return spectrum_list
 
+def reindex_bond(bonds, dict_idx_old_new):
+    #print('bonds_old', bonds)
+    #每条边替换成新编号
+    bonds_new = [[dict_idx_old_new[idx_src], dict_idx_old_new[idx_dst], *res]
+                for idx_src, idx_dst, *res in bonds]
+    return bonds_new
+
+
 def remove_H(atoms, bonds):
     '''原始数据有时包含部分H原子，为了统一，去掉
         spectrum 里标注的原子序号同时作废
@@ -170,13 +183,71 @@ def remove_H(atoms, bonds):
     # print('idx_atom_map', dict_idx_old_new)
     #bonds简单去掉含H的
     bonds_removed_H = [x for x in bonds if (x[0] not in idxs_H) and (x[1] not in idxs_H)]
-    #print('bonds_old', bonds)
-    #print('bonds_remove H simple', bonds_removed_H)
-    #每条边替换成新编号
-    bonds_new = [[dict_idx_old_new[idx_src], dict_idx_old_new[idx_dst], *res]  for idx_src, idx_dst, *res in bonds_removed_H]
-
+    #reindex
+    bonds_new = reindex_bond(bonds_removed_H, dict_idx_old_new)
     #print('bonds reindex', bonds_new)
     return atoms_new, bonds_new
+
+
+
+def reindex_all_atom(atoms, bonds):
+    ''' 剩余原子，也应该按照atom_name_whitelist 顺序重新排列，这样才能在新输入分子式的情况下（按原子顺序表排序的情况下，去预测）'''
+    #重拍atoms 得到新的原子顺序号
+    atoms_reindex = []
+    for name_atom in atom_name_whitelist:
+        for idx_atom_old, atom1 in enumerate(atoms, 1):
+            #对edge需要代换重新编码，因此需要保留老原子编号 编号统一从1开始
+            x,y,z,s, name = atom1
+            if name_atom == name:
+                #保留的原子需要带上老编号！
+                atoms_reindex.append([idx_atom_old, x,y,z,s, name])
+    #atoms 码表
+    atoms_new = []
+    dict_idx_old_new = {}
+    #新变号为了兼容不删除H的，仍然从1开始
+    for idx_atom_new, atom1 in enumerate(atoms_reindex, 1):
+        idx_atom_old,x,y,z,s, name = atom1
+        #去掉老序号
+        atoms_new.append([x,y,z,s, name])
+        dict_idx_old_new[idx_atom_old] = idx_atom_new
+    #reindx
+    bonds_new = reindex_bond(bonds, dict_idx_old_new)
+    #print('bonds reindex', bonds_new)
+    # print('atoms reindex before', atoms)
+    # print('atoms reindex after', atoms_new)
+    # print('bonds reindex before', bonds)
+    # print('bonds reindex after', bonds_new)
+
+    return atoms_new, bonds_new
+
+
+def fill_num_atom(id_abs:dict, num_atom_max=50):
+    '''不足num_atom_max的，补0，超过的舍弃'''
+    id_abs_new = {}
+    #构造1行空原子记录
+    atoms = list(id_abs.values())[0]['atoms']
+    atom_dummy1 = [0 for x in range(len(atoms[0]))]
+    #最后1个是原子类型 'XXX' 表示无原子
+    atom_dummy1[-1] = 'XXX'
+
+    for idm, record1 in id_abs.items():
+        record1_new = copy.deepcopy(record1)
+        atoms = record1_new['atoms']
+        num_atom = len(atoms)
+        if num_atom > num_atom_max:
+            #超过的，不保存
+            continue
+        else:
+            #小于等于的都要补足
+            #不足的，补足
+            while num_atom < num_atom_max:
+                record1_new['atoms'].append(atom_dummy1)
+                num_atom += 1
+  
+            id_abs_new[idm] = record1_new
+    return id_abs_new
+    
+
 
 def parse_lines_m1(lines):
     '''
@@ -184,6 +255,7 @@ def parse_lines_m1(lines):
     nmrshiftdb2 10021716
     133138  0  0  0  0  0  0  0  0999 V2000
     所以不按照 行列数计算，根据atom行，和 edge 行的列数区别先区分这这两种行！
+
     '''
     # line0 = parse_row_list_space(lines[0])
     # num_atom, num_edge, *res = line0
@@ -224,6 +296,9 @@ def parse_lines_m1(lines):
     if need_remove_H:
         atoms, bonds = remove_H(atoms, bonds)
 
+    #按白名单对原子重排序 COCOCO -> CCCCOOO
+
+    atoms, bonds = reindex_all_atom(atoms, bonds)
 
     #提取 > <Spectrum 13C 0>
     id_s = None
@@ -382,23 +457,25 @@ def read_edges_to_ptG(record1):
     return edges
 
 
-def read_atom_features_to_ptG(record1):
-    '''只对白名单内原子类型 进行编码'''
-    atoms_label = [[atom_name_whitelist.index(x[-1])] for x in  record1['atoms']]
+def read_atom_features_to_ptG(atoms):
+    '''根据atom_codes 进行编码 为了ptG需要 形如 [num_nodes, num_node_features]'''
+    atoms_label = [[atom_codes[x[-1]]] for x in atoms]
     #x
     return atoms_label
 
 def get_spectrum_to_ptG(record1):
-    '''谱线 2500维  -10.0 ->240'''
+    '''谱线 2500维  -10.0 ->240
+        向量用 -1 1 编码？  为了HingeLoss？
+    '''
     x_beg = -10.0
     x_end =  240.0
     x_beg10 = int(x_beg*10)
     x_end10 = int(x_end*10)
-    N = int(x_end10 - x_beg10 + 1)
+    N = int(x_end10 - x_beg10)
     def get_idx_shift(shift:float):
         '''从位移到量化编码序号'''
         #放大10倍，取整
-        v = int(round(shift * 100) / 100 * 10)
+        v = int(round_up(shift, 1) * 10)
         #print(shift, v)
         if v < x_beg10:
             idx = 0
@@ -410,7 +487,8 @@ def get_spectrum_to_ptG(record1):
 
     #第0号谱图
     spectrum1 = record1['spectrums'][0]
-    y = np.zeros((1, N))
+    #y = np.zeros((1, N))
+    y = np.ones((1, N)) * -1
     #按位设置为1
     for shift, peck, idx_c in spectrum1:
         idx = get_idx_shift(shift)
@@ -423,19 +501,22 @@ def get_spectrum_to_ptG(record1):
 if __name__ == '__main__':
     fname_abs = 'id_ABS.yml'
     with open('./data/nmrshiftdb2withsignals.sd', 'r', encoding='utf-8') as file:
-        id_lines = split_sd2_by_nmrshiftdb2(file)
+        id_abs = split_sd2_by_nmrshiftdb2(file)
 
     #save_ABS(fname_abs:str, id_lines)
     #id_lines = load_ABS(fname_abs)
-    print(f'共 {len(id_lines)}个结构式')
+    print(f'共 {len(id_abs)}个结构式')
 
-    #record1 = list(id_lines.values())[0]
+    record1 = list(id_abs.values())[0]
     #print(record1)
+    #id_abs = fill_num_atom(id_abs, num_atom_max=50)
+
+    #print(id_abs)
     #atoms_label = read_atom_features_to_ptG(record1)
     #print(atoms_label)
     #y = get_spectrum_to_ptG(record1)
     #print(y)
-
+    #print(y.shape)
     # x = 18.25
     # print(x, round(x, 1), round_up(x, 1))
     # x = 18.38
@@ -447,11 +528,11 @@ if __name__ == '__main__':
     #-----------------output-------------------------
 
     #每个原子数量 统计最大值和分布
-    id_num_atoms = get_num_atom(id_lines)
+    id_num_atoms = get_num_atom(id_abs)
     plot_num_atom(id_num_atoms)
     
     #每个原子 碳谱线最小间距
-    diff, shifts = get_min_shift_spectrum(id_lines)
+    diff, shifts = get_min_shift_spectrum(id_abs)
 
     plot_shift(shifts)
     #0.01精细
