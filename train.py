@@ -9,20 +9,23 @@ writer = SummaryWriter(log_dir='logs',comment='train-loss')
 
 from models import Net
 from prepare_data import loader_tr, loader_ts
+import myloss
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-model = Net(50, 500, 2500)
-criterion = nn.HingeEmbeddingLoss()
-lr = 0.05
+model = Net(50, 50, 50)
+#criterion = nn.MSELoss()
+criterion = nn.L1Loss(reduction='mean')
+#criterion = nn.KLDivLoss(reduction='batchmean')
+#criterion = nn.HingeEmbeddingLoss(reduction='sum')
+#criterion = nn.CosineEmbeddingLoss()
+#criterion = myloss.HingeLoss()
+lr = 0.01
 momentum = 0.9
 #optimizer
 optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
-#optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
-
-#criterion = nn.MSELoss()
-#criterion = nn.L1Loss()
+#optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)
 
 
 model.to(device)
@@ -41,7 +44,7 @@ for epoch in range(num_epoches):
         #每隔5轮
         optimizer.param_groups[0]['lr'] *=0.9
     
-    optimizer.zero_grad()    
+    optimizer.zero_grad()
     model.train()
     start = process_time()
     for data in loader_tr:
@@ -75,8 +78,8 @@ for epoch in range(num_epoches):
         data = data.to(device)
 
         out = model(data)
-        #print(out.shape)
-        #print(data.y.shape)
+        #print(out[0,:])
+        #print(data.y[0,:])
         loss =criterion(out, data.y)
 
         #记录误差 一个数

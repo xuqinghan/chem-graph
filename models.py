@@ -13,11 +13,11 @@ class Net(torch.nn.Module):
         #graph卷积不提升维数
         self.conv1 = CGConv(1, dim=1)
         #self.conv1 = ChebConv(1, 1, K=5)
-        self.conv2 = GCNConv(1, 1, add_self_loops =False)
+        self.conv2 = GCNConv(1, 3, add_self_loops =False)
         #self.conv2 = GCNConv(dim_output1, dim_out)
         #之前输出的是 50 node * 1维
         #普通线性层
-        self.layer3 = nn.Sequential(nn.Linear(1*node_atom, n_h1), nn.BatchNorm1d(n_h1))
+        self.layer3 = nn.Sequential(nn.Linear(3*node_atom, n_h1), nn.BatchNorm1d(n_h1))
         self.layer4 = nn.Sequential(nn.Linear(n_h1, dim_out))
 
         #self.conv2 = CGConv(dim_output1, dim_output2)

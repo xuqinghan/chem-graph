@@ -30,10 +30,11 @@ def create_Data1_from_abs(record1_abs:dict, idx):
     #print(atom_features)
     #print('atom_features', atom_features)
     #谱线
-    spectrum2500 = nmrshiftdb2.get_spectrum_to_ptG(record1_abs)
-    #转成tensor 0 1 稀疏
-    spectrum2500 = torch.tensor(spectrum2500, dtype=torch.float)
-    return Data(x=atom_features, edge_index=edge_index, edge_attr=bonds_order, y=spectrum2500)
+    #spectrum2500 = nmrshiftdb2.get_spectrum_to_ptG(record1_abs)
+    spectrum50 = nmrshiftdb2.get_spectrum_to_ptG_50(record1_abs, num_atom=len(record1_abs['atoms']))
+    #转成tensor shift浮点数
+    y = torch.tensor(spectrum50, dtype=torch.float)
+    return Data(x=atom_features, edge_index=edge_index, edge_attr=bonds_order, y=y)
 
 
 #class NMRShiftDB2(Dataset):
@@ -73,6 +74,7 @@ class NMRShiftDB2(InMemoryDataset):
             data = create_Data1_from_abs(records_abs, idx)
             if data is not None:
                 data_list.append(data)
+        
         #print(data_list)
         if self.pre_filter is not None:
             data_list = [data for data in data_list if self.pre_filter(data)]

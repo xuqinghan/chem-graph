@@ -14,17 +14,22 @@ class HingeLoss(nn.Module):
     https://blog.csdn.net/AI_focus/article/details/78339234
     """
  
-    def __init__(self, n_classes, margin=1.):
+    def __init__(self, reduction='sum'):
         super(HingeLoss, self).__init__()
-        self.margin = margin
-        self.n_classes = n_classes
+
  
     def forward(self, y_pred, y_truth):
         # y_pred: [b,n]
         # y_truth:[b,n]
         batch_size = y_truth.size(0)
-        mask = torch.eye(self.n_classes, self.n_classes, dtype=torch.bool)[y_truth].cuda()
-        y_pred_true = torch.masked_select(y_pred, mask).unsqueeze(dim=-1).cuda()
-        loss = torch.max(torch.zeros_like(y_pred).cuda(), y_pred - y_pred_true + self.margin)
-        loss = loss.masked_fill(mask, 0)
+        dim_y = y_truth.size(1)
+        #print('y_pred', y_pred)
+        #print('y_truth', y_truth)
+        #print(batch_size, dim_y)
+        ones = torch.ones(batch_size, dim_y, dtype=torch.float).cuda()
+        loss = ones - torch.mul(y_pred, y_truth)
+        #print(loss)
+        loss[loss < 0] = 0
+        #print(loss)
+        #每批返回1个结果
         return torch.sum(loss) / batch_size

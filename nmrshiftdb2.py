@@ -10,6 +10,7 @@ import u_file
 from ruamel import yaml
 import numpy as np
 import copy
+import pickle
 
 
 import matplotlib.pyplot as plt
@@ -134,7 +135,7 @@ def round_up(value, num=2):
 def parse_spectrum_seg1(seg1):
     '''形如 18.3;0.0T;0 '''
     pos, peak, idx_c = seg1.split(';')
-    return [round_up(float(pos)), peak[-1], int(idx_c)]
+    return [round_up(float(pos), 2), peak[-1], int(idx_c)]
 
 def parse_spectrum(line1):
     '''形如 17.6;0.0Q;10|18.3;0.0T;0|22.6;0.0Q;12|'''
@@ -144,6 +145,12 @@ def parse_spectrum(line1):
 
     spectrum_list = [parse_spectrum_seg1(seg1) for seg1 in spectrum_list]
     return spectrum_list
+
+def reorder_spectrum(spectrum1:list):
+    '''去重复，排序'''
+    spectrum_pos = list(set([pos for pos, peak, idx_c in spectrum1]))
+    return sorted(spectrum_pos)
+
 
 def reindex_bond(bonds, dict_idx_old_new):
     #print('bonds_old', bonds)
@@ -300,6 +307,8 @@ def parse_lines_m1(lines):
 
     atoms, bonds = reindex_all_atom(atoms, bonds)
 
+    num_atom = len(atoms)
+
     #提取 > <Spectrum 13C 0>
     id_s = None
     dict_spectrum = {}
@@ -311,6 +320,10 @@ def parse_lines_m1(lines):
             #立即读取下一行，作为碳谱！ 
             idx_line += 1
             spectrum1 = parse_spectrum(lines[idx_line])
+            #去重复，重排序
+            spectrum1 = reorder_spectrum(spectrum1)
+            #谱线根数永远小于等于原子总数
+            assert len(spectrum1) <= num_atom
             dict_spectrum[id_s] = spectrum1
         else:
             #不处理
@@ -497,6 +510,18 @@ def get_spectrum_to_ptG(record1):
     return y
 
 
+def get_spectrum_to_ptG_50(record1, num_atom=50):
+    '''谱线 50维(原子数)  从低到高的浮点数
+        其他位置为0
+    '''
+    #第0号谱图
+    spectrum1 = record1['spectrums'][0]
+    y = np.zeros((1, num_atom))
+
+    for i,shift in enumerate(spectrum1):
+        y[0, i] = shift
+    return y
+
 
 if __name__ == '__main__':
     fname_abs = 'id_ABS.yml'
@@ -506,9 +531,16 @@ if __name__ == '__main__':
     #save_ABS(fname_abs:str, id_lines)
     #id_lines = load_ABS(fname_abs)
     print(f'共 {len(id_abs)}个结构式')
+    with open('./nmrshiftdb2_orgin.pkl', 'wb') as file:
+        pickle.dump(id_abs, file)
+    
 
     record1 = list(id_abs.values())[0]
-    #print(record1)
+    print(record1)
+    #spectrums = reorder_spectrum(record1['spectrums'][0])
+    y = get_spectrum_to_ptG_50(record1, num_atom=50)
+    print(y)
+    
     #id_abs = fill_num_atom(id_abs, num_atom_max=50)
 
     #print(id_abs)
@@ -527,17 +559,17 @@ if __name__ == '__main__':
 
     #-----------------output-------------------------
 
-    #每个原子数量 统计最大值和分布
-    id_num_atoms = get_num_atom(id_abs)
-    plot_num_atom(id_num_atoms)
+    # #每个原子数量 统计最大值和分布
+    # id_num_atoms = get_num_atom(id_abs)
+    # plot_num_atom(id_num_atoms)
     
-    #每个原子 碳谱线最小间距
-    diff, shifts = get_min_shift_spectrum(id_abs)
+    # #每个原子 碳谱线最小间距
+    # diff, shifts = get_min_shift_spectrum(id_abs)
 
-    plot_shift(shifts)
-    #0.01精细
-    diff01 = [x for x in diff if x <= 1]
-    plot_diff_2shift(diff01, bins=100, ranges=np.arange(0.0, 1.0, 0.05))
-    #整体
-    plot_diff_2shift(diff, bins=500, ranges=None)
+    # plot_shift(shifts)
+    # #0.01精细
+    # diff01 = [x for x in diff if x <= 1]
+    # plot_diff_2shift(diff01, bins=100, ranges=np.arange(0.0, 1.0, 0.05))
+    # #整体
+    # plot_diff_2shift(diff, bins=500, ranges=None)
 
